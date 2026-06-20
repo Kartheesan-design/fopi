@@ -241,22 +241,6 @@ run -all
 
 ---
 
-## Bill of Materials
-
-| Component | Qty | Cost (INR) |
-|---|---|---|
-| Capacitor (363 µF) | 1 | 120 |
-| Inductor (0.4 mH) | 2 | 3,000 |
-| Resistor (3.025 Ω) | 1 | 15 |
-| Diode | 2 | 350 |
-| PCB (fabricated) | 1 | 5,000 |
-| MOSFET Driver | 2 | 260 |
-| Gate Driver | 2 | 160 |
-| Heatsinks | 4 | 100 |
-| **Total** | | **₹9,005** |
-
----
-
 ## References
 
 1. Yousaf Haroon, Amjadullah Khattak — "Design and Analysis of FOCS for Buck Converter PV Emulator," *GSJ*, Vol. 8, Feb 2020.
