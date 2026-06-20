@@ -149,24 +149,19 @@ pwm_low  = 1  when  pwm_cnt > (duty + DEAD_TIME)
 
 ```
 .
-├── rtl/
+├── RTL/
 │   ├── top_fopi_pwm_system.v       # Top-level
 │   ├── voltage_scale.v             # ADC → mV conversion
 │   ├── control_tick_gen.v          # 10 kHz tick generator
 │   ├── fopi_controller_55V.v       # FOPI control law
 │   ├── duty_latch.v                # Control-rate duty hold
 │   └── pwm_deadtime_2mosfet.v      # 50 kHz PWM + dead-time
-├── tb/
-│   └── top_fopi_pwm_tb.v           # Testbench (plant model included)
-├── quartus/
-│   ├── fopi_converter.qpf          # Quartus project file
-│   ├── fopi_converter.qsf          # Pin assignments (DE10-Standard)
-│   └── output_files/               # Compiled SOF/POF bitstreams
-├── matlab/
+├── SIMULINK/
 │   ├── fopi_tuning.m               # Iso-damping parameter derivation
 │   └── converter_sim.slx           # MATLAB/Simulink plant model
-├── docs/
-│   └── final_capstone_report.pdf
+├── PCB/
+│   └── PCB Design Files
+|
 └── README.md
 ```
 
@@ -240,21 +235,6 @@ quartus_pgm -m jtag -o "p;quartus/output_files/fopi_converter.sof"
 
 ---
 
-## Component BOM & Cost
-
-| Component | Qty | Cost (INR) |
-|---|---|---|
-| Capacitor (363 µF) | 1 | 120 |
-| Inductor (0.4 mH) | 2 | 3000 |
-| Resistor (3.025 Ω) | 1 | 15 |
-| Diode | 2 | 350 |
-| PCB (fabricated) | 1 | 5000 |
-| MOSFET Driver | 2 | 260 |
-| Gate Driver | 2 | 160 |
-| Heatsinks | 4 | 100 |
-| **Total** | | **₹9,005** |
-
----
 
 ## Converter Design Equations
 
@@ -275,16 +255,6 @@ C = (Iout × D) / (fsw × ΔVout)  →  363 µF
 ```
 
 **Ripple budget:** ΔiL = 2.727 A, ΔVout = 0.55 V (1% of Vout)
-
----
-
-## Acknowledgements
-
-- **Dr. Nithya Venkatesan** — Project supervisor, VIT Chennai
-- **Dr. Eldad Avital** — External collaborator, Queen Mary University of London, UK
-- **SPARC-UKIERI Grant P-3789** — Funding support
-- Dr. Saravana Kumar, Mr. Devaraj (lab support), Mr. Sabavath Jayaram & Mr. Sohorab Hussain (Ph.D. scholars)
-- Dr. Lenin NC (Dean, SEE) · Dr. Angeline Ezhilarasi (HoD, EEE)
 
 ---
 
