@@ -1,10 +1,5 @@
 # FOPI-Controlled Parallel Buck-Boost Converter — FPGA Implementation
 
-> B.Tech Capstone Project | VIT Chennai, April 2026  
-> **Authors:** Punithan A (22BEE1035) · Cibiananth D (22BEE1166)  
-> **Supervisor:** Dr. Nithya Venkatesan, School of Electrical Engineering  
-> **Supported by:** SPARC-UKIERI (P-3789) in collaboration with Queen Mary University of London, UK
-
 ---
 
 ## Overview
