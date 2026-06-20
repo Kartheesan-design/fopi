@@ -1,21 +1,91 @@
-# FOPI-Controlled Parallel Buck-Boost Converter — FPGA Implementation
+# FPGA-Based Parallel Buck–Boost Converter with FOPI Control for Renewable Energy Applications
+
 
 ---
 
-## Overview
-
-This project implements a **two-phase interleaved parallel buck-boost converter** for Wind Energy Conversion Systems (WECS), controlled by a **Fractional Order Proportional-Integral (FOPI) controller** synthesized on an **Intel DE10-Standard FPGA (Cyclone V)**.
-
-The system accepts a wildly variable DC input (30 V – 400 V, representing real wind conditions) and regulates a stable **55 V DC output** at 1 kW, with the complete closed-loop control loop — ADC sensing → voltage scaling → FOPI computation → PWM generation — running entirely on the FPGA in Verilog.
+![Block Diagram](HARDWARE%20OUTPUT/Block_Diagram.png)
 
 ---
 
-## Key Specifications
+## Abstract
+
+Wind Energy Conversion Systems (WECS) produce wildly variable DC voltages (30 V – 400 V) depending on wind conditions. This project designs, simulates, and implements a **two-phase interleaved parallel buck-boost converter** regulated by a **Fractional Order Proportional-Integral (FOPI) controller** synthesized on an **Intel DE10-Standard FPGA (Cyclone V)**. The FOPI controller maintains a stable **55 V DC output at 1 kW** across the full input range, outperforming conventional PI control in overshoot, settling time, and steady-state accuracy.
+
+---
+
+## Repository Structure
+
+```
+├── HARDWARE OUTPUT/
+│   ├── Block_Diagram.png          # System-level closed-loop block diagram
+│   ├── HW1.png / HW2–4.jpg       # Lab test setup and hardware photographs
+│   └── capstone.png               # Poster / demo snapshot
+│
+├── PCB/
+│   ├── Sheet1.SchDoc              # Altium schematic
+│   ├── CapController.PrjPcb       # Altium PCB project
+│   ├── PCB.png                    # PCB layout screenshot
+│   ├── pcb.zip                    # Fabrication-ready Gerber package
+│   ├── PcbLib1/2.PcbLib           # PCB footprint libraries
+│   ├── Schlib1/2.SchLib           # Schematic symbol libraries
+│   └── CAMtastic*.Cam             # Individual Gerber layer files
+│
+├── RTL/
+│   ├── top_de10_fopi_adc_pwm.v    # Top-level (DE10-Standard target)
+│   ├── adc_interface.v            # SPI ADC driver (12-bit)
+│   ├── voltage_sensing.v          # ADC code → millivolt conversion
+│   ├── fopi_controller_55V.v      # FOPI control law (incremental form)
+│   ├── pi_controller.v            # Integer PI (comparison baseline)
+│   ├── pwm_deadtime_2mosfet.v     # 50 kHz PWM + complementary dead-time
+│   ├── FPGA1.png / FPGA2.png      # Quartus compilation screenshots
+│   └── fpga.jpg                   # FPGA board photo
+│
+└── SIMULINK/
+    ├── fopibkbt.slx.zip           # MATLAB/Simulink plant + controller model
+    ├── Simulink.png               # Model screenshot
+    ├── Input_Voltage_Simulation.png
+    └── Output_Voltage_Simulation.png
+```
+
+---
+
+## System Architecture
+
+```
+  Vin (30–400 V)
+       │
+  ┌────▼─────────────────────────────────────────────────┐
+  │               DE10-Standard FPGA (Cyclone V)         │
+  │                                                       │
+  │  adc_interface ──► voltage_sensing                   │
+  │       (SPI)          (ADC→mV)                        │
+  │                          │                           │
+  │                   fopi_controller_55V                │
+  │                    (10 kHz update)                   │
+  │                          │                           │
+  │                     duty_latch                       │
+  │                          │                           │
+  │               pwm_deadtime_2mosfet                   │
+  │                (50 kHz, dead-time)                   │
+  └──────────────┬────────────┬─────────────────────────┘
+                 │            │
+             pwm_high      pwm_low
+             (QH MOSFET)  (QL MOSFET)
+                 │            │
+          ┌──────▼────────────▼──────┐
+          │  Interleaved Buck-Boost   │
+          │  L=0.4mH × 2, C=363µF   │──► Vout = 55 V / 1 kW
+          └──────────────────────────┘
+```
+
+---
+
+## Specifications
 
 | Parameter | Value |
 |---|---|
-| Input Voltage Range | 30 V – 400 V |
-| Regulated Output Voltage | 55 V DC |
+| Input Voltage | 30 V – 400 V |
+| Output Voltage | 55 V DC |
 | Output Power | 1 kW |
 | Output Current | 18.18 A |
 | Load Resistance | 3.025 Ω |
@@ -23,52 +93,19 @@ The system accepts a wildly variable DC input (30 V – 400 V, representing real
 | Output Capacitance | 363 µF |
 | Switching Frequency | 50 kHz |
 | Control Update Rate | 10 kHz |
-| FPGA Clock | 100 MHz (Cyclone V) |
-| ADC Resolution | 12-bit |
+| FPGA Clock | 50 MHz on-board → 100 MHz (PLL) |
+| ADC Resolution | 12-bit (SPI) |
 | PWM Resolution | 10-bit (0–1000 counts) |
-| Dead-time | 20 clock cycles |
-| Duty Cycle Limits | 300 – 950 (out of 1000) |
+| Dead-time | 20 clock cycles (200 ns @ 100 MHz) |
+| Duty Cycle Limits | 300 – 950 / 1000 |
 
 ---
 
-## System Architecture
+## FOPI Controller
 
-```
-                    ┌──────────────────────────────────────────┐
-                    │              DE10-Standard FPGA           │
-  12-bit ADC ──────►│  voltage_scale ──► fopi_controller_55V  │
-  (adc_data)        │                          │               │
-  adc_ready ───────►│  control_tick_gen ───────►               │
-                    │                    duty_latch             │
-                    │                          │               │
-                    │                  pwm_deadtime_2mosfet    │
-                    └──────────┬───────────────┬───────────────┘
-                               │               │
-                           pwm_high         pwm_low
-                           (QH MOSFET)    (QL MOSFET)
-```
+### Transfer Function
 
-### Module Breakdown
-
-| Module | Function |
-|---|---|
-| `top_fopi_pwm_system` | Top-level interconnect |
-| `voltage_scale` | Converts 12-bit ADC code → millivolt value using `(adc_data × 3000mV × 28) / 4095` |
-| `control_tick_gen` | Divides 100 MHz clock to generate a 10 kHz one-cycle pulse for control rate |
-| `fopi_controller_55V` | Incremental FOPI: computes duty cycle from error and previous error at control rate only |
-| `duty_latch` | Holds duty cycle constant between control ticks; updates only on `control_tick` |
-| `pwm_deadtime_2mosfet` | 50 kHz PWM counter with complementary high/low outputs and programmable dead-time |
-| `buckboost_plant_55V` | First-order averaged plant model (testbench/simulation use only) |
-
----
-
-## FOPI Controller Design
-
-### Controller Transfer Function
-
-```
-C(s) = Kp + Ki / s^λ
-```
+$$C(s) = K_p + \frac{K_i}{s^\lambda}$$
 
 ### Tuned Parameters (SIMC Iso-Damping Method)
 
@@ -76,25 +113,28 @@ C(s) = Kp + Ki / s^λ
 |---|---|
 | Kp | 0.000403 |
 | Ki | 5.990702 |
-| λ (fractional order) | 1.318576 (≈ 0.67 effective) |
+| λ (fractional order) | 1.318576 |
 | Gain crossover frequency ωc | 0.24 rad/s |
 
-The fractional order λ was selected based on the system's relative delay ratio τ = L/T = 5×10⁻⁶ / 2.48×10⁻⁵. For FOPTD systems with 0.1 < τ < 0.4, optimal λ ranges between 0.6–0.8.
+The fractional order λ was selected using the relative delay ratio τ = L/T = 5×10⁻⁶ / 2.48×10⁻⁵. For FOPTD systems where 0.1 < τ < 0.4, the optimal λ lies between 0.6–0.8; λ = 0.67 was chosen to balance transient performance with robustness.
 
-### Discrete-Time FOPI (Verilog approximation)
+### Discrete-Time Incremental FOPI (Verilog)
+
+The controller runs **only on `control_tick`** (10 kHz one-cycle pulse). Between ticks it holds the previous duty cycle — this is the critical hold-state that eliminates PWM jitter:
 
 ```
-acc[n] = acc[n-1] + (KP × (error[n] - error[n-1])) >> 7
+acc[n] = acc[n-1] + (KP × (error[n] − error[n-1])) >> 7
                   + (KI × error[n]) >> 9
+duty = clamp(acc, DUTY_MIN=300, DUTY_MAX=950)
 ```
-
-This incremental form runs **only on `control_tick`** (10 kHz), with the duty latch holding the value between ticks. This is the critical hold-state architecture that prevents PWM jitter.
 
 ---
 
-## Stability Analysis Across Operating Points
+## Stability Analysis
 
-| Vin (V) | Mode | Duty Cycle | DC Gain (dB) | ωn (rad/s) | Damping ζ | PM (°) | GM (dB) |
+Phase margin stays nearly constant (60°–68°) across the full 30–400 V input range — iso-damping is achieved. Buck mode gains exceed 120 dB, confirming high robustness.
+
+| Vin (V) | Mode | D | DC Gain (dB) | ωn (rad/s) | ζ | PM (°) | GM (dB) |
 |---|---|---|---|---|---|---|---|
 | 30 | Boost | 0.4545 | 45.3 | 2024 | 0.2249 | 60.0 | 18.0 |
 | 40 | Boost | 0.2727 | 40.3 | 2699 | 0.1687 | 61.6 | 23.5 |
@@ -103,158 +143,117 @@ This incremental form runs **only on `control_tick`** (10 kHz), with the duty la
 | 200 | Buck | 0.2750 | 46.0 | 3711 | 0.1227 | 64.6 | 131.0 |
 | 400 | Buck | 0.1375 | 52.0 | 3711 | 0.1227 | 68.2 | 125.0 |
 
-Phase margin remains near-constant (60°–68°) across the full operating range — iso-damping is achieved. Gain margin exceeds 120 dB in buck mode, confirming robust operation.
+---
+
+## RTL Modules
+
+| Module | File | Description |
+|---|---|---|
+| `top_de10_fopi_adc_pwm` | `top_de10_fopi_adc_pwm.v` | Top-level; wires all sub-modules for DE10-Standard |
+| `adc_interface` | `adc_interface.v` | SPI state machine; reads 12-bit ADC over MOSI/MISO/CS |
+| `voltage_sensing` | `voltage_sensing.v` | `vout_mV = (adc_data × 3000 × 28) / 4095` |
+| `fopi_controller_55V` | `fopi_controller_55V.v` | Incremental FOPI; updates only on `control_tick` |
+| `pi_controller` | `pi_controller.v` | Integer PI baseline for comparison |
+| `pwm_deadtime_2mosfet` | `pwm_deadtime_2mosfet.v` | 50 kHz counter; complementary QH/QL with dead-time guard |
 
 ---
 
-## RTL Module Details
+## Simulation Results
 
-### `voltage_scale`
-
-```verilog
-// VREF = 3000 mV, Gain = 28, ADC_MAX = 4095
-vout_mV = (adc_data × 3000 × 28) / 4095
-```
-
-- Registered pipeline: multiply first, divide on the next cycle
-- `vout_valid` asserts for one cycle when result is ready
-
-### `control_tick_gen`
-
-```verilog
-// CLK_FREQ = 100_000_000, CTRL_FREQ = 10_000
-// DIV = 10000 → one-cycle pulse every 100 µs
-```
-
-### `fopi_controller_55V`
-
-- Reference: 55000 mV (hardwired as `vref_mV = 16'd55000`)
-- Operating point initialised to `acc = 800`, `duty = 800`
-- Anti-windup via saturation clamp: `DUTY_MIN = 300`, `DUTY_MAX = 950`
-- Control runs only on `control_tick`; pure hold state otherwise
-
-### `pwm_deadtime_2mosfet`
-
-```
-pwm_high = 1  when  pwm_cnt < (duty - DEAD_TIME)
-pwm_low  = 1  when  pwm_cnt > (duty + DEAD_TIME)
-```
-
-- `PWM_PERIOD = 1000` counts at 50 MHz → 50 kHz switching
-- `DEAD_TIME = 20` counts → 400 ns dead-time between transitions
-
----
-
-## Repository Structure
-
-```
-.
-├── RTL/
-│   ├── top_fopi_pwm_system.v       # Top-level
-│   ├── voltage_scale.v             # ADC → mV conversion
-│   ├── control_tick_gen.v          # 10 kHz tick generator
-│   ├── fopi_controller_55V.v       # FOPI control law
-│   ├── duty_latch.v                # Control-rate duty hold
-│   └── pwm_deadtime_2mosfet.v      # 50 kHz PWM + dead-time
-├── SIMULINK/
-│   ├── fopi_tuning.m               # Iso-damping parameter derivation
-│   └── converter_sim.slx           # MATLAB/Simulink plant model
-├── PCB/
-│   └── PCB Design Files
-|
-└── README.md
-```
-
----
-
-## FPGA Target: DE10-Standard (Cyclone V)
-
-| Resource | Usage |
+| | |
 |---|---|
-| FPGA Board | Terasic DE10-Standard |
-| Device | Intel Cyclone V 5CSXFC6D6F31C6 |
-| System Clock | 50 MHz on-board (×2 PLL → 100 MHz) |
-| ADC Interface | SPI (12-bit, channel-select command) |
-| PWM Outputs | GPIO header pins (QH, QL) |
-| Tool | Intel Quartus Prime |
+| ![Input Voltage](SIMULINK/Input_Voltage_Simulation.png) | ![Output Voltage](SIMULINK/Output_Voltage_Simulation.png) |
+| **Input:** step sweep 30 V → 400 V with transient current spikes | **Output:** stable ~55 V with fast recovery after each disturbance |
 
-### Pin Assignments (example)
-
-| Signal | DE10-Standard Pin |
-|---|---|
-| `clk` | PIN_AF14 (50 MHz OSC) |
-| `rst` | KEY[0] |
-| `adc_data[11:0]` | GPIO (SPI MISO path) |
-| `adc_ready` | GPIO |
-| `pwm_high` | GPIO_0[0] |
-| `pwm_low` | GPIO_0[1] |
-
-> Update `fopi_converter.qsf` for your specific wiring before compiling.
-
----
-
-## Simulation & Verification
-
-### Testbench coverage
-
-- Reset behaviour and startup from zero voltage
-- ADC SPI data transfer correctness
-- Voltage scaling accuracy
-- PWM frequency (50 kHz) and duty cycle accuracy
-- Startup transient (0 → 55 V)
-- Sudden load step disturbance
-- Input voltage disturbance (30 V ↔ 400 V sweep)
-- Controller response direction (sign check)
-- Duty cycle saturation at `DUTY_MIN` / `DUTY_MAX`
-
-### Running simulation (ModelSim / Questa)
-
-```bash
-vlib work
-vlog rtl/*.v tb/top_fopi_pwm_tb.v
-vsim -novopt work.top_fopi_pwm_tb
-add wave /*
-run -all
-```
-
-### Quartus compilation
-
-```bash
-quartus_sh --flow compile quartus/fopi_converter.qpf
-quartus_pgm -m jtag -o "p;quartus/output_files/fopi_converter.sof"
-```
+Simulink model: `SIMULINK/fopibkbt.slx.zip`
 
 ---
 
 ## Hardware Results
 
+| | |
+|---|---|
+| ![HW1](HARDWARE%20OUTPUT/HW1.png) | ![HW2](HARDWARE%20OUTPUT/HW2.jpg) |
+| FPGA + breadboard test bench | Oscilloscope PWM waveform |
+
 - **Measured output voltage:** ~54.9 V DC (multimeter verified)
-- **PWM waveform:** 50 kHz, ~82.5% duty cycle observed on oscilloscope
-- **Switching transients:** Minor ringing at transitions due to parasitic inductance — expected and within bounds
-- **Voltage regulation:** Stable across 30–400 V input sweep
+- **PWM waveform:** 50 kHz, ~82.5% duty cycle at nominal operating point
+- **Switching transients:** Minor ringing at transitions from parasitic elements — within expected bounds
 
 ---
 
+## PCB Design
 
-## Converter Design Equations
+![PCB](PCB/PCB.png)
 
-**Duty cycle:**
-```
-D_buck  = Vout / Vin
-D_boost = (Vout - Vin) / Vin
+Designed in **Altium Designer**. Gerber files ready for fabrication in `PCB/pcb.zip`.
+
+Red traces carry high-current paths; component placement minimises loop area for EMI and thermal management.
+
+---
+
+## FPGA Setup (DE10-Standard)
+
+**Device:** Intel Cyclone V 5CSXFC6D6F31C6  
+**Tool:** Intel Quartus Prime  
+**Clock:** 50 MHz on-board oscillator (PLL ×2 → 100 MHz system clock)
+
+| Signal | DE10-Standard Pin |
+|---|---|
+| `clk` | PIN_AF14 (50 MHz OSC) |
+| `rst` | KEY[0] |
+| `adc_sclk / mosi / miso / cs` | GPIO header (SPI) |
+| `pwm_high` | GPIO_0[0] |
+| `pwm_low` | GPIO_0[1] |
+
+Update `fopi_converter.qsf` with your exact GPIO wiring before compiling.
+
+**Compile and program:**
+```bash
+quartus_sh --flow compile fopi_converter.qpf
+quartus_pgm -m jtag -o "p;output_files/fopi_converter.sof"
 ```
 
-**Inductor (per phase):**
-```
-L = (Vin × D) / (ΔiL × fsw)  →  0.4 mH
+---
+
+## Testbench Coverage
+
+The testbench (`top_de10_fopi_adc_pwm_tb.v`) exercises:
+
+- Reset behaviour and startup from 0 V
+- SPI ADC data transfer correctness
+- Voltage scaling accuracy (`adc_data → mV`)
+- PWM frequency (50 kHz) and duty cycle accuracy
+- Startup transient (0 V → 55 V)
+- Sudden load step disturbance
+- Input voltage sweep (30 V ↔ 400 V)
+- Controller response sign check
+- Duty cycle clamping at `DUTY_MIN` / `DUTY_MAX`
+
+**Run with ModelSim / Questa:**
+```bash
+vlib work
+vlog RTL/*.v
+vsim -novopt work.top_de10_fopi_adc_pwm_tb
+add wave /*
+run -all
 ```
 
-**Output capacitor:**
-```
-C = (Iout × D) / (fsw × ΔVout)  →  363 µF
-```
+---
 
-**Ripple budget:** ΔiL = 2.727 A, ΔVout = 0.55 V (1% of Vout)
+## Bill of Materials
+
+| Component | Qty | Cost (INR) |
+|---|---|---|
+| Capacitor (363 µF) | 1 | 120 |
+| Inductor (0.4 mH) | 2 | 3,000 |
+| Resistor (3.025 Ω) | 1 | 15 |
+| Diode | 2 | 350 |
+| PCB (fabricated) | 1 | 5,000 |
+| MOSFET Driver | 2 | 260 |
+| Gate Driver | 2 | 160 |
+| Heatsinks | 4 | 100 |
+| **Total** | | **₹9,005** |
 
 ---
 
@@ -262,7 +261,7 @@ C = (Iout × D) / (fsw × ΔVout)  →  363 µF
 
 1. Yousaf Haroon, Amjadullah Khattak — "Design and Analysis of FOCS for Buck Converter PV Emulator," *GSJ*, Vol. 8, Feb 2020.
 2. Mahmoud F. Mahmoud et al. — "Different Approximation Techniques for a FOPID," *ICM 2022*.
-3. Maximiliano Bueno-Lopez, Eduardo Giraldo — "Real-Time Fractional Order PI for Embedded Control of a Synchronous Buck Converter," *Engineering Letters*, Vol. 29(3), Sep 2021.
+3. Maximiliano Bueno-Lopez, Eduardo Giraldo — "Real-Time Fractional Order PI for Embedded Control of a Synchronous Buck Converter," *Engineering Letters*, Vol. 29:3, Sep 2021.
 4. S. Vijayalakshmi et al. — "Modeling and Simulation of Interleaved Buck Boost Converter with PID Controller," *IEEE ISCO 2015*.
 5. Manjusha Silas, Surekha Bhusnur — "Optimal Fractional Order Controller Design for a DC Buck Converter," *EVERGREEN*, Vol. 11(2), Jun 2024.
 6. Cihan Ersali, Goran Hekimoglu — "FOPID Controller Design for a Buck Converter Using Hybrid Cooperation Search Algorithm," *GU J Sci Part A*, 10(4), 2023.
@@ -273,6 +272,14 @@ C = (Iout × D) / (fsw × ΔVout)  →  363 µF
 
 ---
 
-## License
+## Acknowledgements
 
-This project is submitted as an academic capstone at VIT Chennai. Reuse with attribution.
+- **Dr. Nithya Venkatesan** — Project Supervisor, VIT Chennai
+- **Dr. Eldad Avital** — External Collaborator, Queen Mary University of London, UK
+- **SPARC-UKIERI Grant P-3789** — Funding support
+- Dr. Saravana Kumar · Mr. Devaraj (lab support) · Mr. Sabavath Jayaram & Mr. Sohorab Hussain (PhD scholars)
+- Dr. Lenin NC (Dean, SEE) · Dr. Angeline Ezhilarasi (HoD, EEE) · VIT Chennai
+
+---
+
+*B.Tech EEE Capstone — VIT Chennai, April 2026. Reuse with attribution.*
